@@ -5,20 +5,17 @@ Dim FileSystem
 Set FileSystem = WScript.CreateObject("Scripting.FileSystemObject")
 
 ' Windows Update Agent (WUA) base file for offline updates
-Dim UpdateBaseURL, UpdateBaseFile
+Dim UpdateBaseURL, UpdateBaseFile, UpdateDescList
 UpdateBaseURL  = "http://go.microsoft.com/fwlink/p/?LinkID=74689"
 UpdateBaseFile = "wsusscn2.cab"
+UpdateDescList = "updates.txt"
 
 ' Define the tree of subfolders
-Dim CurrentPath, CacheFolder, BaseFolder, UpdatesFolder
-CurrentPath   = WShell.CurrentDirectory
-CacheFolder   = CurrentPath & "\cache"
-BaseFolder    = CacheFolder & "\base"
-UpdatesFolder = CacheFolder & "\updates"
-
-Dim BaseFile, DescList
-BaseFile = BaseFolder  & "\" & UpdateBaseFile
-DescList = CacheFolder & "\updates_desc.txt"
+Dim CurrentPath, CacheFolder, BaseFile, DescList
+CurrentPath = WShell.CurrentDirectory
+CacheFolder = CurrentPath & "\cache"
+BaseFile    = CacheFolder & "\" & UpdateBaseFile
+DescList    = CacheFolder & "\" & UpdateDescList
 
 ' Define special symbols which can be used with Print() function
 Dim ChQuote, ChEOL
@@ -181,7 +178,7 @@ Function DescListAddURL(ByRef DownloadContents)
 		Dim ContentInfo
 		Set ContentInfo = DownloadContents.Item(I)
 
-		Call FileTxtAppend(DescList, "URL    : " & ContentInfo.DownloadUrl & ChEOL)
+		Call FileTxtAppend(DescList, "URL      : " & ContentInfo.DownloadUrl & ChEOL)
 	Next
 End Function
 
@@ -197,64 +194,37 @@ Function DescListAddBundled(ByRef BundledUpdates)
 	Next
 End Function
 
-Function ListRequiredUpdates()
-	If Not FileSystem.FileExists(DescList) Then
-		Const SelectionDefault       = 0
-		Const SelectionManagedServer = 1
-		Const SelectionWindowsUpdate = 2
-		Const SelectionOthers        = 3
+Function ListRequiredUpdates(ByRef SearchResult)
+	Dim RequiredUpdates
+	Set RequiredUpdates = SearchResult.Updates
 
-		Const RebootNever            = 0
-		Const RebootAlwaysRequires   = 1
-		Const RebootCanRequest       = 2
+	Call FileDelete(DescList)
+	Call FileTxtAppend(DescList, RequiredUpdates.Count & " updates in list" & ChEOL)
 
-		Call CheckBaseFile()
+	Dim I, MaxI
+	MaxI = RequiredUpdates.Count - 1
 
-		Call Print("Registering " & ChQuote & UpdateBaseFile & ChQuote & " package ... ")
-		Dim UpdateManager, UpdateService
-		Set UpdateManager = CreateObject("Microsoft.Update.ServiceManager")
-		Set UpdateService = UpdateManager.AddScanPackageService("Offline Sync Service", BaseFile)
-		Call Print("Done" & ChEOL)
+	For I = 0 To MaxI
+		Dim UpdateInfo
+		Set UpdateInfo = RequiredUpdates.Item(I)
 
-		Call Print("Starting new update session ... ")
-		Dim UpdateSession, UpdateSearcher
-		Set UpdateSession  = CreateObject("Microsoft.Update.Session")
-		Set UpdateSearcher = UpdateSession.CreateUpdateSearcher()
-		UpdateSearcher.ServerSelection = SelectionOthers
-		UpdateSearcher.ServiceID       = UpdateService.ServiceID
-		Call Print("Done" & ChEOL)
+		Call FileTxtAppend(DescList, ChEOL & "Title    : " & UpdateInfo.Title & ChEOL)
 
-		Call Print("Searching for non-installed updates ... ")
-		Dim SearchResult
-'		Set SearchResult = UpdateSearcher.Search("IsInstalled=0 and Type='Software'")
-		Set SearchResult = UpdateSearcher.Search("IsInstalled=0")
-		Call Print("Done" & ChEOL)
+'		Select Case UpdateInfo.InstallationBehavior.RebootBehavior
+'			Case RebootNever
+'				Call FileTxtAppend(DescList, "Reboot   : No"         & ChEOL)
+'			Case RebootAlwaysRequires
+'				Call FileTxtAppend(DescList, "Reboot   : Required"   & ChEOL)
+'			Case RebootCanRequest
+'				Call FileTxtAppend(DescList, "Reboot   : Recomended" & ChEOL)
+'			Case Else
+'				Call FileTxtAppend(DescList, "Reboot   : Unknown"    & ChEOL)
+'		End Select
 
-		Call Print("Generating the list of updates ... ")
-		Dim RequiredUpdates
-		Set RequiredUpdates = SearchResult.Updates
-
-		Call FileTxtAppend(DescList, RequiredUpdates.Count & " updates in list" & ChEOL)
-
-		Dim I, MaxI
-		MaxI = RequiredUpdates.Count - 1
-
-		For I = 0 To MaxI
-			Dim UpdateInfo
-			Set UpdateInfo = RequiredUpdates.Item(I)
-
-			Call FileTxtAppend(DescList, ChEOL & "Title  : " & UpdateInfo.Title & ChEOL)
-
-			Select Case UpdateInfo.InstallationBehavior.RebootBehavior
-				Case RebootNever
-					Call FileTxtAppend(DescList, "Reboot : No"         & ChEOL)
-				Case RebootAlwaysRequires
-					Call FileTxtAppend(DescList, "Reboot : Required"   & ChEOL)
-				Case RebootCanRequest
-					Call FileTxtAppend(DescList, "Reboot : Recomended" & ChEOL)
-				Case Else
-					Call FileTxtAppend(DescList, "Reboot : Unknown"    & ChEOL)
-			End Select
+		If UpdateInfo.IsDownloaded = True Then
+			Call FileTxtAppend(DescList, "Download : Done"     & ChEOL)
+		Else
+			Call FileTxtAppend(DescList, "Download : Required" & ChEOL)
 
 			Dim DownloadContents, BundledUpdates
 			Set DownloadContents = UpdateInfo.DownloadContents
@@ -265,26 +235,98 @@ Function ListRequiredUpdates()
 			ElseIf BundledUpdates.Count <> 0 Then
 				Call DescListAddBundled(BundledUpdates)
 			Else
-				Call FileTxtAppend(DescList, "URL    : None" & ChEOL)
+				Call FileTxtAppend(DescList, "URL      : None" & ChEOL)
 			End If
-		Next
-		Call Print("Done" & ChEOL)
+		End If
+	Next
+End Function
 
-		Call Print("Unegistering " & ChQuote & UpdateBaseFile & ChQuote & " package ... ")
-		UpdateManager.RemoveService(UpdateService.ServiceID)
-		Call Print("Done" & ChEOL)
-	End If
+Class DummyClass
+	Public Default Function DummyFunction()
+	End Function		
+End Class
+
+Function DownloadRequiredUpdates(ByRef UpdateDownloader)
+	Dim DummyDictionary
+	Set DummyDictionary = WScript.CreateObject("Scripting.Dictionary")
+	Call DummyDictionary.Add("DummyFunction", New DummyClass)
+
+	Dim DownloadJob
+	Set DownloadJob = UpdateDownloader.BeginDownload(DummyDictionary.Item("DummyFunction"), DummyDictionary.Item("DummyFunction"), vbNull)
+
+	Dim I, MaxI, Percent, Completed
+	MaxI = DownloadJob.Updates.Count
+
+	Do
+		' 1 sec timeout
+		WScript.Sleep 1000
+
+		Completed = DownloadJob.IsCompleted
+		I         = DownloadJob.GetProgress.CurrentUpdateIndex + 1
+		Percent   = DownloadJob.GetProgress.PercentComplete
+
+		Call Print(ChCR & "File: " & I & "/" & MaxI & " (" & Percent & "%)")
+	Loop Until Completed = True
+
+	Call Print(ChEOL & "Done" & ChEOL)
+End Function
+
+Function GetRequiredUpdates()
+	Const SelectionDefault       = 0
+	Const SelectionManagedServer = 1
+	Const SelectionWindowsUpdate = 2
+	Const SelectionOthers        = 3
+
+	Const RebootNever            = 0
+	Const RebootAlwaysRequires   = 1
+	Const RebootCanRequest       = 2
+
+	Call Print("Registering " & ChQuote & UpdateBaseFile & ChQuote & " package ... ")
+	Dim UpdateManager, UpdateService
+	Set UpdateManager = WScript.CreateObject("Microsoft.Update.ServiceManager")
+	Set UpdateService = UpdateManager.AddScanPackageService("Offline Sync Service", BaseFile)
+
+	Dim UpdateSession, UpdateSearcher
+	Set UpdateSession  = WScript.CreateObject("Microsoft.Update.Session")
+	Set UpdateSearcher = UpdateSession.CreateUpdateSearcher()
+	UpdateSearcher.ServerSelection = SelectionOthers
+	UpdateSearcher.ServiceID       = UpdateService.ServiceID
+	Call Print("Done" & ChEOL)
+
+	Call Print("Searching for non-installed updates ... ")
+	Dim SearchResult
+'	Set SearchResult = UpdateSearcher.Search("IsInstalled=0 and Type='Software'")
+	Set SearchResult = UpdateSearcher.Search("IsInstalled=0")
+	Call Print("Done" & ChEOL)
+
+	Call Print("Generating the list of updates ... ")
+	Call ListRequiredUpdates(SearchResult)
+	Call Print("Done" & ChEOL)
+
+	Call Print(ChEOL & "Downloading non-installed updates ... " & ChEOL)
+	Dim UpdateDownloader
+	Set UpdateDownloader = UpdateSession.CreateUpdateDownloader() 
+	UpdateDownloader.Updates = SearchResult.Updates
+'	UpdateDownloader.Download()
+	Call DownloadRequiredUpdates(UpdateDownloader)
+	Call Print(ChEOL)
+
+	Call Print("Unegistering " & ChQuote & UpdateBaseFile & ChQuote & " package ... ")
+	UpdateManager.RemoveService(UpdateService.ServiceID)
+	Call Print("Done" & ChEOL)
 End Function
 
 ' Use command line interface
 Call ForceConsole()
 
-' Create cache subfolders when it is needed
-Call FolderCreate(BaseFolder)
-Call FolderCreate(UpdatesFolder)
+' Create cache subfolder when it is needed
+Call FolderCreate(CacheFolder)
 
-' Generate the list of required updates
-Call ListRequiredUpdates()
+' Get last base file when it is needed
+Call CheckBaseFile()
+
+' Get required updates
+Call GetRequiredUpdates()
 
 ' End of script
 Call WaitEnter()
