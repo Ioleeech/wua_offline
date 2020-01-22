@@ -195,6 +195,10 @@ Function DescListAddBundled(ByRef BundledUpdates)
 End Function
 
 Function ListRequiredUpdates(ByRef SearchResult)
+	Const RebootNever          = 0
+	Const RebootAlwaysRequires = 1
+	Const RebootCanRequest     = 2
+
 	Dim RequiredUpdates
 	Set RequiredUpdates = SearchResult.Updates
 
@@ -210,16 +214,16 @@ Function ListRequiredUpdates(ByRef SearchResult)
 
 		Call FileTxtAppend(DescList, ChEOL & "Title    : " & UpdateInfo.Title & ChEOL)
 
-'		Select Case UpdateInfo.InstallationBehavior.RebootBehavior
-'			Case RebootNever
-'				Call FileTxtAppend(DescList, "Reboot   : No"         & ChEOL)
-'			Case RebootAlwaysRequires
-'				Call FileTxtAppend(DescList, "Reboot   : Required"   & ChEOL)
-'			Case RebootCanRequest
-'				Call FileTxtAppend(DescList, "Reboot   : Recomended" & ChEOL)
-'			Case Else
-'				Call FileTxtAppend(DescList, "Reboot   : Unknown"    & ChEOL)
-'		End Select
+		Select Case UpdateInfo.InstallationBehavior.RebootBehavior
+			Case RebootNever
+				Call FileTxtAppend(DescList, "Reboot   : No"         & ChEOL)
+			Case RebootAlwaysRequires
+				Call FileTxtAppend(DescList, "Reboot   : Required"   & ChEOL)
+			Case RebootCanRequest
+				Call FileTxtAppend(DescList, "Reboot   : Recomended" & ChEOL)
+			Case Else
+				Call FileTxtAppend(DescList, "Reboot   : Unknown"    & ChEOL)
+		End Select
 
 		If UpdateInfo.IsDownloaded = True Then
 			Call FileTxtAppend(DescList, "Download : Done"     & ChEOL)
@@ -246,7 +250,10 @@ Class DummyClass
 	End Function		
 End Class
 
-Function DownloadRequiredUpdates(ByRef UpdateDownloader)
+Function DownloadRequiredUpdates(ByRef UpdateDownloader, ByRef SearchResult)
+	UpdateDownloader.Updates = SearchResult.Updates
+'	UpdateDownloader.Download()
+
 	Dim DummyDictionary
 	Set DummyDictionary = WScript.CreateObject("Scripting.Dictionary")
 	Call DummyDictionary.Add("DummyFunction", New DummyClass)
@@ -258,17 +265,59 @@ Function DownloadRequiredUpdates(ByRef UpdateDownloader)
 	MaxI = DownloadJob.Updates.Count
 
 	Do
-		' 1 sec timeout
-		WScript.Sleep 1000
+		' 500 ms timeout
+		WScript.Sleep 500
 
 		Completed = DownloadJob.IsCompleted
 		I         = DownloadJob.GetProgress.CurrentUpdateIndex + 1
 		Percent   = DownloadJob.GetProgress.PercentComplete
 
-		Call Print(ChCR & "File: " & I & "/" & MaxI & " (" & Percent & "%)")
+		Call Print(ChCR & "Update " & I & "/" & MaxI & " (" & Percent & "%)  ")
 	Loop Until Completed = True
 
-	Call Print(ChEOL & "Done" & ChEOL)
+	Call Print(ChEOL)
+End Function
+
+Function InstallRequiredUpdates(ByRef UpdateInstaller, ByRef SearchResult)
+	Dim DownloadedUpdates
+	Set DownloadedUpdates = WScript.CreateObject("Microsoft.Update.UpdateColl")
+
+	Dim I, MaxI, Completed
+	MaxI = SearchResult.Updates.Count - 1
+
+	For I = 0 To MaxI
+		Dim UpdateInfo
+		Set UpdateInfo = SearchResult.Updates.Item(I)
+
+		If UpdateInfo.IsDownloaded = True Then
+			DownloadedUpdates.Add(UpdateInfo)	
+		End If
+	Next
+
+	UpdateInstaller.Updates = DownloadedUpdates
+'	UpdateInstaller.Install()
+
+	Dim DummyDictionary
+	Set DummyDictionary = WScript.CreateObject("Scripting.Dictionary")
+	Call DummyDictionary.Add("DummyFunction", New DummyClass)
+
+	Dim InstallJob
+	Set InstallJob = UpdateInstaller.BeginInstall(DummyDictionary.Item("DummyFunction"), DummyDictionary.Item("DummyFunction"), vbNull)
+
+	MaxI = InstallJob.Updates.Count
+
+	Do
+		' 500 ms timeout
+		WScript.Sleep 500
+
+		Completed = InstallJob.IsCompleted
+		I         = InstallJob.GetProgress.CurrentUpdateIndex + 1
+		Percent   = InstallJob.GetProgress.CurrentUpdatePercentComplete
+
+		Call Print(ChCR & "Update " & I & "/" & MaxI & " (" & Percent & "%)  ")
+	Loop Until Completed = True
+
+	Call Print(ChEOL)
 End Function
 
 Function GetRequiredUpdates()
@@ -276,10 +325,6 @@ Function GetRequiredUpdates()
 	Const SelectionManagedServer = 1
 	Const SelectionWindowsUpdate = 2
 	Const SelectionOthers        = 3
-
-	Const RebootNever            = 0
-	Const RebootAlwaysRequires   = 1
-	Const RebootCanRequest       = 2
 
 	Call Print("Registering " & ChQuote & UpdateBaseFile & ChQuote & " package ... ")
 	Dim UpdateManager, UpdateService
@@ -299,17 +344,26 @@ Function GetRequiredUpdates()
 	Set SearchResult = UpdateSearcher.Search("IsInstalled=0")
 	Call Print("Done" & ChEOL)
 
-	Call Print("Generating the list of updates ... ")
-	Call ListRequiredUpdates(SearchResult)
-	Call Print("Done" & ChEOL)
+	If SearchResult.Updates.Count <> 0 Then
+		Call Print("Generating the list of updates ... ")
+		Call ListRequiredUpdates(SearchResult)
+		Call Print("Done" & ChEOL & ChEOL)
 
-	Call Print(ChEOL & "Downloading non-installed updates ... " & ChEOL)
-	Dim UpdateDownloader
-	Set UpdateDownloader = UpdateSession.CreateUpdateDownloader() 
-	UpdateDownloader.Updates = SearchResult.Updates
-'	UpdateDownloader.Download()
-	Call DownloadRequiredUpdates(UpdateDownloader)
-	Call Print(ChEOL)
+		Call Print("Downloading non-installed updates ... " & ChEOL)
+		Dim UpdateDownloader
+		Set UpdateDownloader = UpdateSession.CreateUpdateDownloader() 
+		Call DownloadRequiredUpdates(UpdateDownloader, SearchResult)
+		Call Print("Done" & ChEOL & ChEOL)
+
+		Call Print("Installing updates ... " & ChEOL)
+		Dim UpdateInstaller
+		Set UpdateInstaller = UpdateSession.CreateUpdateInstaller()
+		Call InstallRequiredUpdates(UpdateInstaller, SearchResult)
+		Call Print("Done" & ChEOL & ChEOL)
+	Else
+		Call Print("All updates are already installed, there is nothing to do!" & ChEOL)
+		Call FileDelete(DescList)
+	End If
 
 	Call Print("Unegistering " & ChQuote & UpdateBaseFile & ChQuote & " package ... ")
 	UpdateManager.RemoveService(UpdateService.ServiceID)
