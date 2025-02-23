@@ -1,5 +1,7 @@
 # wua_offline
-Script for offline Windows update
+This script uses "offline" Windows Update Agent (WUA) database and can be helpful in the case of broken Windows Update service.
+
+But it still requires online connection to download the updates from official Microsoft repository (http://download.windowsupdate.com).
 
 Running on Windows XP
 ---------------------
@@ -13,9 +15,9 @@ Last supported version of base file signed with SHA-1 key was issued 14.07.2020 
 * http://web.archive.org/web/20200811034917/http://download.windowsupdate.com/microsoftupdate/v6/wsusscan/wsusscn2.cab
 
 Running the script on Windows XP:
-* Download the base file ``wsusscn2.cab`` from the Internet Archive site (its size is about 880 MB)
-* Create subfolder ``.\cache\`` and place base file inside it: ``.\cache\wsusscn2.cab``
-* Run the update script: ``start_update``
+* Download the base file ``wsusscn2.cab`` from the Internet Archive site (its size is about 880 MB).
+* Create subfolder ``.\cache\`` and place base file inside it: ``.\cache\wsusscn2.cab``.
+* Run the update script: ``start_update``.
 
 Windows Update Restored
 -----------------------
