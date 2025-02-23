@@ -1,5 +1,5 @@
 # wua_offline
-This script uses "offline" Windows Update Agent (WUA) database and can be helpful in the case of broken Windows Update service.
+This script uses "offline" database for **Windows Update Agent** (WUA) and can be helpful in the case of broken Windows Update service.
 
 But it still requires online connection to download the updates from official Microsoft repository (http://download.windowsupdate.com).
 
